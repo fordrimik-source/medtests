@@ -1,7 +1,7 @@
 {
-  "name": "Психиатрические тесты",
-  "short_name": "МедТесты",
-  "start_url": ".",
+  "name": "Врач Журнал",
+  "short_name": "Врач",
+  "start_url": "doctor.html",
   "display": "standalone",
   "background_color": "#f5f3f0",
   "theme_color": "#1e4b4b",
