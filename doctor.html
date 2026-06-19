@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Журнал врача — Психиатрические тесты</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Врач Журнал">
+    <meta name="theme-color" content="#1e4b4b">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;background:#f5f3f0;color:#2e2e2e;line-height:1.6;padding:1rem;display:flex;flex-direction:column;align-items:center;padding-top:max(1rem,env(safe-area-inset-top));padding-bottom:max(1rem,env(safe-area-inset-bottom))}
+        .container{max-width:800px;width:100%;background:#fff;border-radius:28px;box-shadow:0 18px 40px rgba(0,0,0,.07);padding:1.8rem 1.5rem;margin:.6rem 0}
+        h1{font-size:1.5rem;font-weight:600;margin-bottom:.3rem;color:#1e3b3b}
+        h2{font-size:1.1rem;color:#1e3b3b;margin-bottom:.6rem}
+        .subtitle{color:#4f5d5d;margin-bottom:1rem;font-size:.85rem}
+        label{display:block;font-weight:600;margin-bottom:.2rem;color:#1f3a3a;font-size:.85rem}
+        input[type=text],input[type=password],input[type=date],input[type=file]{width:100%;padding:.6rem .8rem;border:1px solid #ddd7cd;border-radius:10px;font-size:.9rem;margin-bottom:.6rem;background:#fff}
+        .btn{background:#1e4b4b;border:none;color:#fff;font-weight:600;padding:.6rem 1.2rem;border-radius:40px;cursor:pointer;font-size:.85rem;margin:.3rem;box-shadow:0 4px 12px rgba(0,0,0,.08);touch-action:manipulation}
+        .btn:active{background:#143636}
+        .btn-secondary{background:transparent;color:#2c4f4f;border:1.5px solid #2c4f4f;box-shadow:none}
+        .btn-secondary:active{background:#e9f0f0}
+        .btn-danger{background:#a33;color:#fff}
+        .btn-danger:active{background:#722}
+        .card{background:#f9f8f6;border-radius:16px;padding:1rem;margin:.8rem 0;border:1px solid #eae3d8}
+        .patient-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem;cursor:pointer;padding:.4rem 0;border-bottom:1px solid #eee}
+        .patient-row:last-child{border-bottom:none}
+        .history-item{background:#fff;border-radius:10px;padding:.6rem .8rem;margin:.3rem 0;border:1px solid #ddd;font-size:.85rem}
+        .hidden{display:none}
+        .search-box{margin-bottom:1rem}
+        canvas{max-width:100%;margin-top:1rem}
+        hr{margin:1rem 0;border:.5px solid #e0d7c8}
+        @media(max-width:500px){.container{padding:1.2rem 1rem}.btn{width:100%;margin:.3rem 0}}
+    </style>
+</head>
+<body>
+<div class="container" id="appContainer">
+    <h1>🩺 Журнал врача</h1>
+    <div class="subtitle">Психиатрические тесты — база пациентов</div>
+    <div id="dynamicContent"></div>
+</div>
+<script>
+// ========== PWA ==========
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+// ========== DB ==========
+const DB_NAME='psychiatrist_journal';const DB_VERSION=1;
+let db;
+function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,DB_VERSION);req.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('patients'))db.createObjectStore('patients',{keyPath:'id',autoIncrement:true});if(!db.objectStoreNames.contains('results')){const store=db.createObjectStore('results',{keyPath:'id',autoIncrement:true});store.createIndex('patientId','patientId',{unique:false})}};req.onsuccess=e=>{db=e.target.result;resolve(db)};req.onerror=()=>reject(req.error)})}
+function addPatient(name,birth){return new Promise((resolve,reject)=>{const tx=db.transaction('patients','readwrite');const store=tx.objectStore('patients');const req=store.add({name,birth,createdAt:new Date().toISOString()});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+function getPatients(){return new Promise((resolve,reject)=>{const tx=db.transaction('patients','readonly');const store=tx.objectStore('patients');const req=store.getAll();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+function deletePatient(id){return new Promise((resolve,reject)=>{const tx=db.transaction(['patients','results'],'readwrite');tx.objectStore('patients').delete(id);const resStore=tx.objectStore('results');const idx=resStore.index('patientId');const req=idx.openCursor(IDBKeyRange.only(id));req.onsuccess=e=>{const cursor=e.target.result;if(cursor){resStore.delete(cursor.primaryKey);cursor.continue()}else resolve()};req.onerror=()=>reject(req.error)})}
+function addResult(patientId,resultData){return new Promise((resolve,reject)=>{const tx=db.transaction('results','readwrite');const store=tx.objectStore('results');const req=store.add({patientId,...resultData,createdAt:new Date().toISOString()});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+function getResults(patientId){return new Promise((resolve,reject)=>{const tx=db.transaction('results','readonly');const idx=tx.objectStore('results').index('patientId');const req=idx.getAll(patientId);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+// ========== AUTH ==========
+const DEFAULT_PASSWORD='doctor2026';
+let authPassed=false;
+function renderAuth(){
+    document.getElementById('dynamicContent').innerHTML=`
+        <div class="card"><h2>🔐 Введите пароль</h2>
+        <input type="password" id="authPass" placeholder="Пароль">
+        <button class="btn" id="authBtn">Войти</button>
+        <p class="small-note" style="margin-top:.5rem">По умолчанию: doctor2026 (смените в коде)</p></div>`;
+    document.getElementById('authBtn').addEventListener('click',()=>{
+        if(document.getElementById('authPass').value===DEFAULT_PASSWORD){authPassed=true;renderMain()}
+        else alert('Неверный пароль');
+    });
+}
+// ========== MAIN ==========
+function renderMain(){
+    document.getElementById('dynamicContent').innerHTML=`
+        <div class="search-box"><input type="text" id="searchInput" placeholder="🔍 Поиск пациента по фамилии..."></div>
+        <div id="patientList"></div>
+        <hr>
+        <button class="btn" id="addPatientBtn">➕ Добавить пациента</button>
+        <button class="btn btn-secondary" id="importBtn">📥 Импортировать результат из файла</button>
+        <button class="btn btn-secondary" id="exportCSVBtn">📊 Экспорт всей базы в CSV</button>
+        <button class="btn btn-secondary" id="logoutBtn">🔒 Выйти</button>
+        <div id="modalArea"></div>`;
+    loadPatientList();
+    document.getElementById('addPatientBtn').addEventListener('click',renderAddPatient);
+    document.getElementById('importBtn').addEventListener('click',renderImport);
+    document.getElementById('exportCSVBtn').addEventListener('click',exportCSV);
+    document.getElementById('logoutBtn').addEventListener('click',()=>{authPassed=false;renderAuth()});
+    document.getElementById('searchInput').addEventListener('input',e=>loadPatientList(e.target.value));
+}
+async function loadPatientList(filter=''){
+    const patients=await getPatients();
+    const filtered=filter?patients.filter(p=>p.name.toLowerCase().includes(filter.toLowerCase())):patients;
+    const listDiv=document.getElementById('patientList');
+    if(filtered.length===0){listDiv.innerHTML='<p style="color:#888">Пациентов не найдено.</p>';return}
+    listDiv.innerHTML=filtered.map(p=>`
+        <div class="patient-row">
+            <span style="font-weight:600">${p.name}</span><span style="color:#888;font-size:.8rem">${p.birth}</span>
+            <button class="btn btn-secondary viewPatientBtn" data-id="${p.id}">📋</button>
+            <button class="btn btn-danger deletePatientBtn" data-id="${p.id}">✕</button>
+        </div>`).join('');
+    document.querySelectorAll('.viewPatientBtn').forEach(b=>b.addEventListener('click',()=>renderPatient(parseInt(b.dataset.id))));
+    document.querySelectorAll('.deletePatientBtn').forEach(b=>b.addEventListener('click',async()=>{if(confirm('Удалить пациента и все его результаты?')){await deletePatient(parseInt(b.dataset.id));loadPatientList()}}));
+}
+function renderAddPatient(){
+    document.getElementById('modalArea').innerHTML=`
+        <div class="card"><h2>➕ Добавить пациента</h2>
+        <label>ФИО</label><input type="text" id="newName">
+        <label>Дата рождения</label><input type="date" id="newBirth">
+        <button class="btn" id="saveNewPatient">Сохранить</button>
+        <button class="btn btn-secondary" id="cancelNewPatient">Отмена</button></div>`;
+    document.getElementById('saveNewPatient').addEventListener('click',async()=>{
+        const name=document.getElementById('newName').value.trim();
+        const birth=document.getElementById('newBirth').value;
+        if(!name){alert('Введите ФИО');return}
+        await addPatient(name,birth);
+        document.getElementById('modalArea').innerHTML='';
+        loadPatientList();
+    });
+    document.getElementById('cancelNewPatient').addEventListener('click',()=>{document.getElementById('modalArea').innerHTML=''});
+}
+async function renderPatient(patientId){
+    const patients=await getPatients();
+    const patient=patients.find(p=>p.id===patientId);
+    if(!patient)return;
+    const results=await getResults(patientId);
+    results.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+    document.getElementById('modalArea').innerHTML=`
+        <div class="card"><h2>📋 ${patient.name}</h2><p>Дата рождения: ${patient.birth}</p>
+        <h3 style="margin-top:1rem">История тестирований (${results.length})</h3>
+        <div id="historyList"></div>
+        <canvas id="chartCanvas" height="200"></canvas>
+        <button class="btn btn-secondary" id="closePatient">← Назад к списку</button></div>`;
+    const histDiv=document.getElementById('historyList');
+    if(results.length===0)histDiv.innerHTML='<p style="color:#888">Нет результатов.</p>';
+    else histDiv.innerHTML=results.map(r=>`
+        <div class="history-item"><strong>${r.date}</strong> — ${r.test==='beck'?'Шкала Бека':r.test==='phq'?'PHQ':'Неизв.'} | ${r.summary||''}
+        <br><small>${r.details||''}</small></div>`).join('');
+    document.getElementById('closePatient').addEventListener('click',()=>{document.getElementById('modalArea').innerHTML='';loadPatientList()});
+    drawChart(results);
+}
+function drawChart(results){
+    const canvas=document.getElementById('chartCanvas');if(!canvas)return;
+    const ctx=canvas.getContext('2d');canvas.width=canvas.parentElement.clientWidth-40;
+    const beckRes=results.filter(r=>r.test==='beck').reverse();
+    if(beckRes.length<2)return;
+    ctx.clearRect(0,0,canvas.width,200);
+    const maxScore=63;const padding=30;const w=canvas.width-padding*2;const h=160;
+    ctx.beginPath();ctx.strokeStyle='#1e4b4b';ctx.lineWidth=2;
+    beckRes.forEach((r,i)=>{
+        const x=padding+(w/(beckRes.length-1))*i;
+        const y=padding+h-(r.score/maxScore)*h;
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    beckRes.forEach((r,i)=>{
+        const x=padding+(w/(beckRes.length-1))*i;
+        const y=padding+h-(r.score/maxScore)*h;
+        ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fillStyle='#d18e2c';ctx.fill();ctx.strokeStyle='#1e4b4b';ctx.stroke();
+        ctx.fillStyle='#1e4b4b';ctx.font='9px Arial';ctx.fillText(r.score,x-8,y-8);
+    });
+}
+function renderImport(){
+    document.getElementById('modalArea').innerHTML=`
+        <div class="card"><h2>📥 Импорт результата</h2>
+        <label>Пациент (выберите или введите нового)</label>
+        <select id="importPatientSelect"><option value="">-- Выберите --</option></select>
+        <p style="margin:.3rem 0">или</p>
+        <input type="text" id="importNewName" placeholder="ФИО нового пациента">
+        <input type="date" id="importNewBirth" placeholder="Дата рождения">
+        <label>Файл результата (.txt)</label><input type="file" id="importFile" accept=".txt">
+        <button class="btn" id="doImport">Импортировать</button>
+        <button class="btn btn-secondary" id="cancelImport">Отмена</button></div>`;
+    (async()=>{const pts=await getPatients();document.getElementById('importPatientSelect').innerHTML='<option value="">-- Выберите --</option>'+pts.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')})();
+    document.getElementById('doImport').addEventListener('click',async()=>{
+        const file=document.getElementById('importFile').files[0];
+        if(!file){alert('Выберите файл');return}
+        const text=await file.text();
+        const parsed=parseReport(text);
+        if(!parsed){alert('Не удалось разобрать файл. Проверьте формат.');return}
+        let patientId=parseInt(document.getElementById('importPatientSelect').value);
+        if(!patientId){
+            const newName=document.getElementById('importNewName').value.trim()||parsed.name||'Неизвестный';
+            const newBirth=document.getElementById('importNewBirth').value||parsed.birth||'';
+            patientId=await addPatient(newName,newBirth);
+        }
+        await addResult(patientId,parsed);
+        document.getElementById('modalArea').innerHTML='<p style="color:green">✅ Результат импортирован!</p>';
+        setTimeout(()=>{document.getElementById('modalArea').innerHTML='';loadPatientList()},1200);
+    });
+    document.getElementById('cancelImport').addEventListener('click',()=>{document.getElementById('modalArea').innerHTML=''});
+}
+function parseReport(text){
+    const data={};
+    const nameMatch=text.match(/ФИО:\s*(.+)/);if(nameMatch)data.name=nameMatch[1].trim();
+    const birthMatch=text.match(/Дата рождения:\s*(.+)/);if(birthMatch)data.birth=birthMatch[1].trim();
+    const dateMatch=text.match(/Дата опроса:\s*(.+)/);if(dateMatch)data.date=dateMatch[1].trim();
+    if(text.includes('Шкала депрессии Бека')){
+        data.test='beck';
+        const scoreMatch=text.match(/Общий балл:\s*(\d+)/);if(scoreMatch)data.score=parseInt(scoreMatch[1]);
+        const sevMatch=text.match(/Интерпретация:\s*(.+)/);if(sevMatch)data.summary=sevMatch[1].trim();
+        data.details=`Балл: ${data.score}`;
+    }else if(text.includes('Полный опросник PHQ')){
+        data.test='phq';
+        const depMatch=text.match(/Депрессивная шкала[^:]*:\s*(\d+)/);if(depMatch)data.score=parseInt(depMatch[1]);
+        const diagMatch=text.match(/Заключение:\s*(.+)/);if(diagMatch)data.summary=diagMatch[1].trim();
+        data.details=`PHQ-9: ${data.score}`;
+    }else{return null}
+    if(!data.date)data.date=new Date().toISOString().slice(0,10);
+    return data;
+}
+async function exportCSV(){
+    const patients=await getPatients();
+    let csv='ФИО;Дата рождения;Дата опроса;Тест;Балл;Интерпретация;Детали\n';
+    for(const p of patients){
+        const results=await getResults(p.id);
+        for(const r of results){
+            csv+=`"${p.name}";"${p.birth}";"${r.date}";"${r.test==='beck'?'Шкала Бека':'PHQ'}";${r.score||''};"${r.summary||''}";"${r.details||''}"\n`;
+        }
+    }
+    const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`journal_export_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+    URL.revokeObjectURL(url);
+}
+// ========== INIT ==========
+openDB().then(()=>{renderAuth()});
+</script>
+</body>
+</html>
