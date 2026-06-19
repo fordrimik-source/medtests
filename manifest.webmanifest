@@ -1,0 +1,16 @@
+{
+  "name": "Психиатрические тесты",
+  "short_name": "МедТесты",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f5f3f0",
+  "theme_color": "#1e4b4b",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%231e4b4b'/%3E%3Ctext x='50' y='68' font-size='56' text-anchor='middle' fill='white' font-family='Arial'%3E%E2%9C%93%3C/text%3E%3C/svg%3E",
+      "sizes": "100x100",
+      "type": "image/svg+xml"
+    }
+  ]
+}
