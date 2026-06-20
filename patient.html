@@ -394,7 +394,7 @@ function sendResult(){
     const text=encodeURIComponent(buildReport());
     const subject=encodeURIComponent(`Результаты тестирования: ${state.patient.name}`);
     const mailUrl=`mailto:fordrimik@gmail.com?subject=${subject}&body=${text}`;
-    const waUrl=`https://wa.me/79256103513?text=${text}`;
+    const waUrl=`https://wa.me/79256103514?text=${text}`;
     const tgUrl=`https://t.me/hxtengo?text=${text}`;
     container.querySelector('.result-block').innerHTML+=`
         <div style="margin-top:1rem"><strong>Выберите способ отправки:</strong></div>
